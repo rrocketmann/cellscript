@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LuaPetri</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --muted: #656d76;
+      --canvas-bg: #ffffff;
+      --code-bg: #ffffff;
+    }
+    [data-theme="dark"] {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --canvas-bg: #05080c;
+      --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .left { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+    .right {
+      width: 480px;
+      min-width: 320px;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+    }
+    canvas {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      background: var(--canvas-bg);
+      cursor: crosshair;
+      object-fit: contain;
+    }
+    .stats-overlay {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      display: flex;
+      gap: 14px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      background: rgba(255,255,255,0.7);
+      padding: 4px 10px;
+      border-radius: 4px;
+      pointer-events: none;
+    }
+    [data-theme="dark"] .stats-overlay {
+      background: rgba(0,0,0,0.5);
+    }
+    #code {
+      flex: 1;
+      width: 100%;
+      background: var(--code-bg);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.9rem;
+    }
+    .docs {
+      max-height: 40%;
+      overflow: auto;
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      font-size: 0.82rem;
+      background: var(--code-bg);
+    }
+    .docs h3 { margin: 0 0 8px; font-size: 0.95rem; }
+    .docs table { width: 100%; border-collapse: collapse; }
+    .docs td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .docs td:first-child { font-family: monospace; color: #6b7280; white-space: nowrap; }
+    [data-theme="dark"] .docs td:first-child { color: #9ca3af; }
+    .docs td:last-child { color: var(--muted); }
+    .error-box {
+      padding: 10px 14px;
+      background: rgba(255, 107, 107, 0.12);
+      border-top: 1px solid #ff6b6b;
+      color: #d73a49;
+      font-size: 0.82rem;
+      max-height: 120px;
+      overflow: auto;
+      white-space: pre-wrap;
+      display: none;
+    }
+    [data-theme="dark"] .error-box { background: rgba(255, 133, 133, 0.15); color: #ff7b72; }
+    @media (max-width: 900px) {
+      .right { width: 340px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="main">
+    <div class="left">
+      <canvas id="dish" width="800" height="600"></canvas>
+      <div class="stats-overlay">
+        <span>M: <b id="statMicrobes">0</b></span>
+        <span>F: <b id="statFood">0</b></span>
+        <span>FPS: <b id="statFps">0</b></span>
+      </div>
+    </div>
+    <div class="right">
+      <div id="code">-- Your microbe's brain. New microbes spawned by clicking use this code.
+-- self = you, food/stranger/family = things around you.
+
+self.color = {80, 160, 255}
+self.size = 10
+
+if stranger.distance < 100 then
+  self.move(-stranger.direction.x * 3, -stranger.direction.y * 3)
+elseif food.distance < 120 then
+  self.move(food.direction.x * 2, food.direction.y * 2)
+  self.eat()
+elseif family.distance < 150 then
+  self.move(family.direction.x, family.direction.y)
+else
+  local t = self.age * 0.02
+  self.move(math.sin(t), math.cos(t))
+end
+
+if self.energy > 160 then
+  self.reproduce()
+end</div>
+      <div id="errorBox" class="error-box"></div>
+      <div class="docs">
+        <h3>Self</h3>
+        <table>
+          <tr><td>self.color = {r, g, b}</td><td>Set your color with values 0-255.</td></tr>
+          <tr><td>self.size = n</td><td>Set your visual size (clamped between 3 and 40).</td></tr>
+          <tr><td>self.energy</td><td>Current energy.</td></tr>
+          <tr><td>self.max_energy</td><td>Energy cap (250).</td></tr>
+          <tr><td>self.x, self.y</td><td>Position in the dish.</td></tr>
+          <tr><td>self.family</td><td>Family id (1 or 2).</td></tr>
+          <tr><td>self.age</td><td>Frames survived.</td></tr>
+        </table>
+        <h3 style="margin-top:12px">World Objects</h3>
+        <table>
+          <tr><td>food.distance</td><td>Distance to nearest food (large if none).</td></tr>
+          <tr><td>food.direction.x / .y</td><td>Normalized vector toward nearest food.</td></tr>
+          <tr><td>food.count</td><td>Food particles nearby.</td></tr>
+          <tr><td>food.density</td><td>Food crowdedness in the area.</td></tr>
+          <tr><td>stranger.distance</td><td>Distance to nearest foreign microbe.</td></tr>
+          <tr><td>stranger.direction.x / .y</td><td>Normalized vector toward nearest stranger.</td></tr>
+          <tr><td>stranger.count</td><td>Strangers nearby.</td></tr>
+          <tr><td>stranger.density</td><td>Stranger crowdedness.</td></tr>
+          <tr><td>family.distance</td><td>Distance to nearest same-family microbe.</td></tr>
+          <tr><td>family.direction.x / .y</td><td>Normalized vector toward nearest family member.</td></tr>
+          <tr><td>family.count</td><td>Family members nearby.</td></tr>
+          <tr><td>family.density</td><td>Family crowdedness.</td></tr>
+        </table>
+        <h3 style="margin-top:12px">Actions</h3>
+        <table>
+          <tr><td>self.move(dx, dy)</td><td>Add movement force for this frame.</td></tr>
+          <tr><td>self.eat()</td><td>Eat food within reach. Returns energy gained.</td></tr>
+          <tr><td>self.attack()</td><td>Bite nearby strangers. Returns energy stolen.</td></tr>
+          <tr><td>self.reproduce()</td><td>Split if energy is high enough.</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/fengari-web@0.1.4/dist/fengari-web.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.0/ace.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.0/ext-language_tools.js"></script>
+  <script>
+    const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
+
+    const canvas = document.getElementById('dish');
+    const ctx = canvas.getContext('2d');
+    const errEl = document.getElementById('errorBox');
+    const statMicrobes = document.getElementById('statMicrobes');
+    const statFood = document.getElementById('statFood');
+    const statFps = document.getElementById('statFps');
+
+    const editor = ace.edit('code');
+    editor.setOptions({
+      enableBasicAutocompletion: true,
+      enableLiveAutocompletion: true,
+      fontSize: '14px',
+      showPrintMargin: false,
+      tabSize: 2,
+      useSoftTabs: true
+    });
+    editor.session.setMode('ace/mode/lua');
+    editor.session.setUseWrapMode(true);
+
+    const apiCompletions = [
+      { caption: 'self.color = {r, g, b}', value: 'self.color = {80, 160, 255}', meta: 'style', doc: 'Set your color.' },
+      { caption: 'self.size = n', value: 'self.size = 10', meta: 'style', doc: 'Set your size.' },
+      { caption: 'self.energy', value: 'self.energy', meta: 'self', doc: 'Current energy.' },
+      { caption: 'self.max_energy', value: 'self.max_energy', meta: 'self', doc: 'Max energy.' },
+      { caption: 'self.size', value: 'self.size', meta: 'self', doc: 'Current size.' },
+      { caption: 'self.x', value: 'self.x', meta: 'self', doc: 'X position.' },
+      { caption: 'self.y', value: 'self.y', meta: 'self', doc: 'Y position.' },
+      { caption: 'self.family', value: 'self.family', meta: 'self', doc: 'Family id.' },
+      { caption: 'self.age', value: 'self.age', meta: 'self', doc: 'Frames survived.' },
+      { caption: 'food.distance', value: 'food.distance', meta: 'world', doc: 'Distance to nearest food.' },
+      { caption: 'food.direction.x', value: 'food.direction.x', meta: 'world', doc: 'X toward food.' },
+      { caption: 'food.direction.y', value: 'food.direction.y', meta: 'world', doc: 'Y toward food.' },
+      { caption: 'food.count', value: 'food.count', meta: 'world', doc: 'Food nearby.' },
+      { caption: 'food.density', value: 'food.density', meta: 'world', doc: 'Food crowdedness.' },
+      { caption: 'stranger.distance', value: 'stranger.distance', meta: 'world', doc: 'Distance to nearest stranger.' },
+      { caption: 'stranger.direction.x', value: 'stranger.direction.x', meta: 'world', doc: 'X toward stranger.' },
+      { caption: 'stranger.direction.y', value: 'stranger.direction.y', meta: 'world', doc: 'Y toward stranger.' },
+      { caption: 'stranger.count', value: 'stranger.count', meta: 'world', doc: 'Strangers nearby.' },
+      { caption: 'stranger.density', value: 'stranger.density', meta: 'world', doc: 'Stranger crowdedness.' },
+      { caption: 'family.distance', value: 'family.distance', meta: 'world', doc: 'Distance to nearest family.' },
+      { caption: 'family.direction.x', value: 'family.direction.x', meta: 'world', doc: 'X toward family.' },
+      { caption: 'family.direction.y', value: 'family.direction.y', meta: 'world', doc: 'Y toward family.' },
+      { caption: 'family.count', value: 'family.count', meta: 'world', doc: 'Family nearby.' },
+      { caption: 'family.density', value: 'family.density', meta: 'world', doc: 'Family crowdedness.' },
+      { caption: 'self.move(dx, dy)', value: 'self.move(0, 0)', meta: 'action', doc: 'Add movement force.' },
+      { caption: 'self.eat()', value: 'self.eat()', meta: 'action', doc: 'Eat nearby food.' },
+      { caption: 'self.attack()', value: 'self.attack()', meta: 'action', doc: 'Attack nearby strangers.' },
+      { caption: 'self.reproduce()', value: 'self.reproduce()', meta: 'action', doc: 'Split if possible.' }
+    ];
+
+    ace.require('ace/ext/language_tools').addCompleter({
+      getCompletions: function(editor, session, pos, prefix, callback) {
+        callback(null, apiCompletions.map(item => ({
+          caption: item.caption,
+          value: item.value,
+          meta: item.meta,
+          docText: item.doc
+        })));
+      }
+    });
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('microbe-theme', theme);
+      editor.setTheme(theme === 'dark' ? 'ace/theme/tomorrow_night' : 'ace/theme/github');
+    }
+
+    const savedTheme = localStorage.getItem('microbe-theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('microbe-theme')) setTheme(e.matches ? 'dark' : 'light');
+      });
+    }
+
+    let microbes = [];
+    let foods = [];
+    let running = true;
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let lastFpsTime = lastTime;
+    let pendingSpawn = [];
+
+    const WORLD_W = 800;
+    const WORLD_H = 600;
+    const MAX_MICROBES = 220;
+    const FOOD_CAP = 450;
+    const FOOD_SPAWN_RATE = 3;
+    const START_MICROBES_A = 12;
+    const START_MICROBES_B = 12;
+    const MAX_ENERGY = 250;
+    const REPRO_COST = 110;
+    const METABOLISM = 0.12;
+    const MOVE_COST = 0.25;
+    const EAT_RADIUS_BONUS = 6;
+    const ATTACK_RADIUS = 14;
+    const ATTACK_DAMAGE = 35;
+    const ATTACK_LEECH = 0.5;
+    const START_ENERGY = 90;
+    const NO_TARGET_DIST = 9999;
+
+    function randRange(min, max) { return Math.random() * (max - min) + min; }
+
+    function showError(msg) {
+      errEl.style.display = 'block';
+      errEl.textContent = msg;
+    }
+    function clearError() {
+      errEl.style.display = 'none';
+      errEl.textContent = '';
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function toNum(L, idx) {
+      return lua.lua_tonumber(L, idx) || 0;
+    }
+
+    function pushKey(L, key) {
+      lua.lua_pushstring(L, to_luastring(key));
+    }
+
+    function setNumField(L, key, value) {
+      pushKey(L, key);
+      lua.lua_pushnumber(L, value);
+      lua.lua_settable(L, -3);
+    }
+
+    function setColorTable(L, r, g, b) {
+      lua.lua_createtable(L, 3, 0);
+      lua.lua_pushnumber(L, r);
+      lua.lua_rawseti(L, -2, 1);
+      lua.lua_pushnumber(L, g);
+      lua.lua_rawseti(L, -2, 2);
+      lua.lua_pushnumber(L, b);
+      lua.lua_rawseti(L, -2, 3);
+    }
+
+    function readColor(L, idx) {
+      if (lua.lua_istable(L, idx)) {
+        lua.lua_rawgeti(L, idx, 1);
+        const r = clamp(Math.round(toNum(L, -1)), 0, 255);
+        lua.lua_pop(L, 1);
+        lua.lua_rawgeti(L, idx, 2);
+        const g = clamp(Math.round(toNum(L, -1)), 0, 255);
+        lua.lua_pop(L, 1);
+        lua.lua_rawgeti(L, idx, 3);
+        const b = clamp(Math.round(toNum(L, -1)), 0, 255);
+        lua.lua_pop(L, 1);
+        return `rgb(${r},${g},${b})`;
+      }
+      if (lua.lua_isstring(L, idx)) {
+        const s = to_jsstring(lua.lua_tostring(L, idx));
+        if (s.startsWith('#') || s.startsWith('rgb') || s.startsWith('hsl')) return s;
+      }
+      return null;
+    }
+
+    function dirInfoFromNearest(nearest) {
+      if (!nearest) return { distance: NO_TARGET_DIST, x: 0, y: 0 };
+      const d = Math.hypot(nearest.x, nearest.y);
+      if (d === 0) return { distance: NO_TARGET_DIST, x: 0, y: 0 };
+      return { distance: d, x: nearest.x / d, y: nearest.y / d };
+    }
+
+    function density(count, r) {
+      return count / (Math.PI * r * r / 1000 + 1);
+    }
+
+    function darkenColor(color, amount) {
+      const m = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (!m) return '#000000';
+      return `rgb(${clamp(+m[1] - amount, 0, 255)},${clamp(+m[2] - amount, 0, 255)},${clamp(+m[3] - amount, 0, 255)})`;
+    }
+
+    class Microbe {
+      constructor(x, y, family, sourceCode) {
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.energy = START_ENERGY;
+        this.family = family;
+        this.size = 8;
+        this.age = 0;
+        this.dead = false;
+        this.lastError = null;
+        this.color = 'rgb(150,150,150)';
+        this.L = null;
+        this.compile(sourceCode);
+      }
+
+      compile(sourceCode) {
+        if (this.L) {
+          lua.lua_close(this.L);
+          this.L = null;
+        }
+        this.L = lauxlib.luaL_newstate();
+        lualib.luaL_openlibs(this.L);
+
+        const wrapped = to_luastring(`
+local _instr_count = 0
+local function _timeout_hook()
+  _instr_count = _instr_count + 1
+  if _instr_count > 50 then
+    error("microbe took too many instructions (infinite loop?)", 2)
+  end
+end
+return function(dt)
+  _instr_count = 0
+  debug.sethook(_timeout_hook, "", 1000)
+  ` + sourceCode + `
+  debug.sethook()
+end
+`);
+
+        const status = lauxlib.luaL_dostring(this.L, wrapped);
+        if (status !== lua.LUA_OK) {
+          const msg = to_jsstring(lua.lua_tostring(this.L, -1));
+          lua.lua_pop(this.L, 1);
+          this.lastError = 'Compile error: ' + msg;
+          return;
+        }
+        this.bindAPI();
+      }
+
+      dispose() {
+        this.dead = true;
+        if (this.L) {
+          lua.lua_close(this.L);
+          this.L = null;
+        }
+      }
+
+      bindAPI() {
+        const L = this.L;
+        const self = this;
+
+        // self table
+        lua.lua_createtable(L, 0, 12);
+        lua.lua_setglobal(L, to_luastring('self'));
+        lua.lua_getglobal(L, to_luastring('self'));
+
+        setColorTable(L, 150, 150, 150);
+        pushKey(L, 'color');
+        lua.lua_insert(L, -2);
+        lua.lua_settable(L, -3);
+        setNumField(L, 'size', self.size);
+
+        const bindMethod = (name, fn) => {
+          pushKey(L, name);
+          lua.lua_pushjsfunction(L, fn);
+          lua.lua_settable(L, -3);
+        };
+
+        bindMethod('move', (L) => {
+          self.vx += toNum(L, 1);
+          self.vy += toNum(L, 2);
+          return 0;
+        });
+        bindMethod('eat', (L) => { lua.lua_pushnumber(L, self.eat()); return 1; });
+        bindMethod('attack', (L) => { lua.lua_pushnumber(L, self.attack()); return 1; });
+        bindMethod('reproduce', (L) => { lua.lua_pushboolean(L, self.reproduce()); return 1; });
+        lua.lua_pop(L, 1);
+
+        // food table
+        lua.lua_createtable(L, 0, 5);
+        pushKey(L, 'direction');
+        lua.lua_createtable(L, 0, 2);
+        lua.lua_settable(L, -3);
+        lua.lua_setglobal(L, to_luastring('food'));
+
+        // stranger table
+        lua.lua_createtable(L, 0, 5);
+        pushKey(L, 'direction');
+        lua.lua_createtable(L, 0, 2);
+        lua.lua_settable(L, -3);
+        lua.lua_setglobal(L, to_luastring('stranger'));
+
+        // family table
+        lua.lua_createtable(L, 0, 5);
+        pushKey(L, 'direction');
+        lua.lua_createtable(L, 0, 2);
+        lua.lua_settable(L, -3);
+        lua.lua_setglobal(L, to_luastring('family'));
+      }
+
+      updateLuaState() {
+        const L = this.L;
+
+        // self
+        lua.lua_getglobal(L, to_luastring('self'));
+        pushKey(L, 'color');
+        setColorTable(L,
+          parseInt(this.color.slice(4).split(',')[0]) || 150,
+          parseInt(this.color.slice(4).split(',')[1]) || 150,
+          parseInt(this.color.slice(4).split(',')[2]) || 150
+        );
+        lua.lua_settable(L, -3);
+        setNumField(L, 'energy', this.energy);
+        setNumField(L, 'max_energy', MAX_ENERGY);
+        setNumField(L, 'size', this.size);
+        setNumField(L, 'x', this.x);
+        setNumField(L, 'y', this.y);
+        setNumField(L, 'family', this.family);
+        setNumField(L, 'age', this.age);
+        lua.lua_pop(L, 1);
+
+        // food
+        lua.lua_getglobal(L, to_luastring('food'));
+        const foodInfo = dirInfoFromNearest(this.nearestFood(300));
+        setNumField(L, 'distance', foodInfo.distance);
+        setNumField(L, 'count', this.countFood(120));
+        setNumField(L, 'density', density(this.countFood(120), 120));
+        pushKey(L, 'direction');
+        lua.lua_gettable(L, -2);
+        setNumField(L, 'x', foodInfo.x);
+        setNumField(L, 'y', foodInfo.y);
+        lua.lua_pop(L, 2);
+
+        // stranger
+        lua.lua_getglobal(L, to_luastring('stranger'));
+        const strangerInfo = dirInfoFromNearest(this.nearestMicrobe(300, false));
+        setNumField(L, 'distance', strangerInfo.distance);
+        setNumField(L, 'count', this.countMicrobes(100, false));
+        setNumField(L, 'density', density(this.countMicrobes(100, false), 100));
+        pushKey(L, 'direction');
+        lua.lua_gettable(L, -2);
+        setNumField(L, 'x', strangerInfo.x);
+        setNumField(L, 'y', strangerInfo.y);
+        lua.lua_pop(L, 2);
+
+        // family
+        lua.lua_getglobal(L, to_luastring('family'));
+        const familyInfo = dirInfoFromNearest(this.nearestMicrobe(300, true));
+        setNumField(L, 'distance', familyInfo.distance);
+        setNumField(L, 'count', this.countMicrobes(100, true));
+        setNumField(L, 'density', density(this.countMicrobes(100, true), 100));
+        pushKey(L, 'direction');
+        lua.lua_gettable(L, -2);
+        setNumField(L, 'x', familyInfo.x);
+        setNumField(L, 'y', familyInfo.y);
+        lua.lua_pop(L, 2);
+      }
+
+      readColorFromLua() {
+        const L = this.L;
+        lua.lua_getglobal(L, to_luastring('self'));
+        lua.lua_getfield(L, -1, to_luastring('color'));
+        const c = readColor(L, -1);
+        if (c) this.color = c;
+        lua.lua_pop(L, 2);
+      }
+
+      readSizeFromLua() {
+        const L = this.L;
+        lua.lua_getglobal(L, to_luastring('self'));
+        lua.lua_getfield(L, -1, to_luastring('size'));
+        const s = toNum(L, -1);
+        if (s > 0) this.size = clamp(s, 3, 40);
+        lua.lua_pop(L, 2);
+      }
+
+      think(dt) {
+        if (this.dead || this.lastError) return;
+        const L = this.L;
+        this.updateLuaState();
+        lua.lua_pushvalue(L, -1);
+        lua.lua_pushnumber(L, dt);
+        const status = lua.lua_pcall(L, 1, 0, 0);
+        if (status !== lua.LUA_OK) {
+          const msg = to_jsstring(lua.lua_tostring(L, -1));
+          lua.lua_pop(L, 1);
+          this.lastError = msg;
+          this.energy -= 5;
+        } else {
+          this.readColorFromLua();
+          this.readSizeFromLua();
+        }
+      }
+
+      update() {
+        if (this.dead) return;
+        this.age++;
+        const speed = Math.hypot(this.vx, this.vy);
+        const maxSpeed = 2.5;
+        if (speed > maxSpeed) {
+          this.vx = (this.vx / speed) * maxSpeed;
+          this.vy = (this.vy / speed) * maxSpeed;
+        }
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.85;
+        this.vy *= 0.85;
+
+        if (this.x < this.size) { this.x = this.size; this.vx *= -0.5; }
+        if (this.x > WORLD_W - this.size) { this.x = WORLD_W - this.size; this.vx *= -0.5; }
+        if (this.y < this.size) { this.y = this.size; this.vy *= -0.5; }
+        if (this.y > WORLD_H - this.size) { this.y = WORLD_H - this.size; this.vy *= -0.5; }
+
+        this.energy -= METABOLISM + speed * MOVE_COST;
+        if (this.energy <= 0) this.dead = true;
+      }
+
+      eat() {
+        let gain = 0;
+        const r = this.size + EAT_RADIUS_BONUS;
+        for (let i = foods.length - 1; i >= 0; i--) {
+          const f = foods[i];
+          const dx = f.x - this.x;
+          const dy = f.y - this.y;
+          if (dx * dx + dy * dy <= r * r) {
+            gain += f.energy;
+            foods.splice(i, 1);
+          }
+        }
+        this.energy = Math.min(MAX_ENERGY, this.energy + gain);
+        return gain;
+      }
+
+      attack() {
+        let stolen = 0;
+        for (const m of microbes) {
+          if (m === this || m.dead || m.family === this.family) continue;
+          const dx = m.x - this.x;
+          const dy = m.y - this.y;
+          if (dx * dx + dy * dy <= ATTACK_RADIUS * ATTACK_RADIUS) {
+            const dmg = Math.min(ATTACK_DAMAGE, m.energy);
+            m.energy -= dmg;
+            stolen += dmg * ATTACK_LEECH;
+          }
+        }
+        this.energy = Math.min(MAX_ENERGY, this.energy + stolen);
+        return stolen;
+      }
+
+      reproduce() {
+        if (this.energy < REPRO_COST || microbes.length >= MAX_MICROBES) return false;
+        const childEnergy = this.energy * 0.45;
+        this.energy *= 0.55;
+        pendingSpawn.push({ x: this.x + randRange(-15, 15), y: this.y + randRange(-15, 15), family: this.family });
+        return true;
+      }
+
+      nearestFood(radius) {
+        let best = null;
+        let bestD2 = radius * radius;
+        for (const f of foods) {
+          const dx = f.x - this.x;
+          const dy = f.y - this.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestD2) { bestD2 = d2; best = { x: dx, y: dy }; }
+        }
+        return best;
+      }
+
+      nearestMicrobe(radius, sameFamily) {
+        let best = null;
+        let bestD2 = radius * radius;
+        for (const m of microbes) {
+          if (m === this || m.dead) continue;
+          const match = sameFamily ? (m.family === this.family) : (m.family !== this.family);
+          if (!match) continue;
+          const dx = m.x - this.x;
+          const dy = m.y - this.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestD2) { bestD2 = d2; best = { x: dx, y: dy }; }
+        }
+        return best;
+      }
+
+      countFood(radius) {
+        const r2 = radius * radius;
+        let count = 0;
+        for (const f of foods) {
+          const dx = f.x - this.x;
+          const dy = f.y - this.y;
+          if (dx * dx + dy * dy <= r2) count++;
+        }
+        return count;
+      }
+
+      countMicrobes(radius, sameFamily) {
+        const r2 = radius * radius;
+        let count = 0;
+        for (const m of microbes) {
+          if (m === this || m.dead) continue;
+          const match = sameFamily ? (m.family === this.family) : (m.family !== this.family);
+          if (!match) continue;
+          const dx = m.x - this.x;
+          const dy = m.y - this.y;
+          if (dx * dx + dy * dy <= r2) count++;
+        }
+        return count;
+      }
+
+      draw() {
+        const r = this.size;
+
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = this.lastError ? '#ff0000' : darkenColor(this.color, 70);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function resolveCollisions() {
+      for (let i = 0; i < microbes.length; i++) {
+        for (let j = i + 1; j < microbes.length; j++) {
+          const a = microbes[i];
+          const b = microbes[j];
+          if (a.dead || b.dead) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = a.size + b.size;
+          if (dist < minDist && dist > 0.001) {
+            const overlap = (minDist - dist) * 0.5;
+            const nx = dx / dist;
+            const ny = dy / dist;
+            a.x -= nx * overlap;
+            a.y -= ny * overlap;
+            b.x += nx * overlap;
+            b.y += ny * overlap;
+          }
+        }
+      }
+    }
+
+    function spawnFood(n) {
+      for (let i = 0; i < n && foods.length < FOOD_CAP; i++) {
+        foods.push({ x: Math.random() * WORLD_W, y: Math.random() * WORLD_H, energy: 18 + Math.random() * 10 });
+      }
+    }
+
+    function resetDish() {
+      for (const m of microbes) m.dispose();
+      microbes = [];
+      foods = [];
+      pendingSpawn = [];
+      const code = editor.getValue();
+      const total = START_MICROBES_A + START_MICROBES_B;
+      for (let i = 0; i < total; i++) {
+        microbes.push(new Microbe(randRange(50, WORLD_W - 50), randRange(50, WORLD_H - 50), Math.random() < 0.5 ? 1 : 2, code));
+      }
+      spawnFood(FOOD_CAP);
+      clearError();
+    }
+
+    function step(dt) {
+      pendingSpawn = [];
+      for (const m of microbes) {
+        m.think(dt);
+      }
+      for (const m of microbes) m.update();
+      resolveCollisions();
+      for (const child of pendingSpawn) {
+        microbes.push(new Microbe(child.x, child.y, child.family, editor.getValue()));
+      }
+      const dead = microbes.filter(m => m.dead);
+      microbes = microbes.filter(m => !m.dead);
+      for (const m of dead) m.dispose();
+      spawnFood(FOOD_SPAWN_RATE);
+      if (microbes.length > MAX_MICROBES) {
+        const sorted = microbes.slice().sort((a, b) => a.energy - b.energy);
+        const removed = sorted.slice(0, microbes.length - MAX_MICROBES);
+        microbes = sorted.slice(microbes.length - MAX_MICROBES);
+        for (const m of removed) m.dispose();
+      }
+    }
+
+    function draw() {
+      ctx.fillStyle = getComputedStyle(canvas).backgroundColor || '#ffffff';
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+      for (const f of foods) {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#3fb950';
+        ctx.fill();
+      }
+
+      for (const m of microbes) m.draw();
+    }
+
+    function loop(now) {
+      if (!running) {
+        lastTime = now;
+        requestAnimationFrame(loop);
+        return;
+      }
+      const dt = Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+      step(dt);
+      draw();
+      frameCount++;
+      if (now - lastFpsTime >= 1000) {
+        statFps.textContent = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+      }
+      statMicrobes.textContent = microbes.length;
+      statFood.textContent = foods.length;
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (WORLD_W / rect.width);
+      const y = (e.clientY - rect.top) * (WORLD_H / rect.height);
+      microbes.push(new Microbe(x, y, Math.random() < 0.5 ? 1 : 2, editor.getValue()));
+    });
+
+    resetDish();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
