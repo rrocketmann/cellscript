@@ -1,10 +1,10 @@
-# LuaPetri
+# CellScript
 
 A browser-based petri dish where microbes are programmed in Lua. Each microbe runs its own copy of your Lua "brain" every frame and can sense its surroundings (food, family, strangers) and act (move, eat, attack, reproduce).
 
 ## Play online
 
-Visit [rrocketmann.github.io/luapetri](https://rrocketmann.github.io/luapetri).
+Visit [rrocketmann.github.io/cellscript](https://rrocketmann.github.io/cellscript).
 
 ## Run locally
 
