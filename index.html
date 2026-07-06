@@ -49,8 +49,7 @@
       height: 100%;
       background: var(--canvas-bg);
       cursor: crosshair;
-      aspect-ratio: 4 / 3;
-      margin: auto;
+      object-fit: cover;
     }
     .stats-overlay {
       position: absolute;
@@ -1063,10 +1062,17 @@ end
 
     canvas.addEventListener('click', (e) => {
       const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (WORLD_W / rect.width);
-      const y = (e.clientY - rect.top) * (WORLD_H / rect.height);
+      const scale = Math.max(rect.width / WORLD_W, rect.height / WORLD_H);
+      const offsetX = (rect.width - WORLD_W * scale) / 2;
+      const offsetY = (rect.height - WORLD_H * scale) / 2;
+      const x = Math.floor((e.clientX - rect.left - offsetX) / scale);
+      const y = Math.floor((e.clientY - rect.top - offsetY) / scale);
       const sp = species[activeSpeciesIdx];
-      microbes.push(new Microbe(x, y, sp.familyId, sp.code, activeSpeciesIdx));
+      microbes.push(new Microbe(
+        Math.max(0, Math.min(WORLD_W - 1, x)),
+        Math.max(0, Math.min(WORLD_H - 1, y)),
+        sp.familyId, sp.code, activeSpeciesIdx
+      ));
     });
 
     editor.session.on('change', () => {
